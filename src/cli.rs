@@ -1,5 +1,5 @@
-//! The commands to manage the users who log in with a password, for an
-//! application's CLI to mount.
+//! If you use `clap` you can use this to add password management cli
+//! functionality in your application. Requires the `cli` feature.
 
 use std::io::{IsTerminal, stdin};
 
@@ -9,48 +9,52 @@ use rpassword::prompt_password;
 
 use crate::auth::Auth;
 use crate::credentials::Credentials;
-use crate::password_policy::PasswordPolicy;
 use crate::password_store::PasswordStore;
+use crate::password_validator::PasswordValidator;
 use crate::session_store::SessionStore;
 
-/// The commands to manage the users who log in with a password. Both ask
-/// for the password, or read it from standard input if that isn't a
-/// terminal, so a script can give it.
+/// The commands to manage the users who log in with a password.
 #[derive(Subcommand)]
 pub enum PasswordUserCommand {
-    /// Create a user who logs in with the username and a password.
-    CreateUser { username: String },
+    /// Create a user who logs in with the username and a password. Asks for the password.
+    CreateUser {
+        /// The username.
+        username: String,
+    },
     /// Change the password of the user with the username, which logs them
     /// out everywhere.
-    ChangePassword { username: String },
+    ChangePassword {
+        /// The username
+        username: String,
+    },
 }
 
-pub async fn run_password_user_command<P, S, V>(
-    password_user_command: PasswordUserCommand,
-    auth: &Auth<P, S, V>,
-) -> Result<()>
-where
-    P: PasswordStore,
-    S: SessionStore<UserId = P::UserId>,
-    V: PasswordPolicy,
-{
-    match password_user_command {
-        PasswordUserCommand::CreateUser { username } => {
-            let credentials = Credentials {
-                username,
-                password: read_password()?,
-            };
-            auth.create_user(&credentials).await?;
+impl PasswordUserCommand {
+    /// Run the command with the auth.
+    pub async fn run<P, S, V>(self, auth: &Auth<P, S, V>) -> Result<()>
+    where
+        P: PasswordStore,
+        S: SessionStore<UserId = P::UserId>,
+        V: PasswordValidator,
+    {
+        match self {
+            PasswordUserCommand::CreateUser { username } => {
+                let credentials = Credentials {
+                    username,
+                    password: read_password()?,
+                };
+                auth.create_user(&credentials).await?;
+            }
+            PasswordUserCommand::ChangePassword { username } => {
+                let credentials = Credentials {
+                    username,
+                    password: read_password()?,
+                };
+                auth.change_password(&credentials).await?;
+            }
         }
-        PasswordUserCommand::ChangePassword { username } => {
-            let credentials = Credentials {
-                username,
-                password: read_password()?,
-            };
-            auth.change_password(&credentials).await?;
-        }
+        Ok(())
     }
-    Ok(())
 }
 
 /// The password, asked for twice without showing it, or read from standard

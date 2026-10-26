@@ -3,8 +3,8 @@ use jiff::SignedDuration;
 use crate::auth::Auth;
 #[cfg(feature = "cookie")]
 use crate::cookie::SessionCookie;
-use crate::password_policy::{MinimumLength, PasswordPolicy};
 use crate::password_store::PasswordStore;
+use crate::password_validator::{MinimumLengthPasswordValidator, PasswordValidator};
 use crate::session_store::SessionStore;
 
 /// How long a session lasts by default.
@@ -15,11 +15,12 @@ const DEFAULT_MAXIMUM_CONCURRENT_VERIFICATIONS: usize = 4;
 #[cfg(feature = "cookie")]
 const DEFAULT_SESSION_COOKIE_NAME: &str = "session";
 
-/// Builds an `Auth`, from `Auth::builder`. What isn't set keeps its default.
+/// Builds an `Auth`, from `Auth::builder`. Falls back on defaults for builder
+/// methods that aren't used.
 ///
 /// ```
 /// # use jiff::SignedDuration;
-/// # use session_auth::{Auth, MinimumLength, PasswordStore, SessionStore};
+/// # use session_auth::{Auth, MinimumLengthPasswordValidator, PasswordStore, SessionStore};
 /// fn auth<P, S>(password_store: P, session_store: S) -> Auth<P, S>
 /// where
 ///     P: PasswordStore,
@@ -27,16 +28,16 @@ const DEFAULT_SESSION_COOKIE_NAME: &str = "session";
 /// {
 ///     Auth::builder(password_store, session_store)
 ///         .session_lifetime(SignedDuration::from_hours(7 * 24))
-///         .password_policy(MinimumLength(12))
+///         .password_validator(MinimumLengthPasswordValidator::new(12))
 ///         .build()
 /// }
 /// ```
-pub struct AuthBuilder<P, S, V = MinimumLength> {
+pub struct AuthBuilder<P, S, V = MinimumLengthPasswordValidator> {
     pub(crate) password_store: P,
     pub(crate) session_store: S,
     pub(crate) session_lifetime: SignedDuration,
     pub(crate) maximum_concurrent_verifications: usize,
-    pub(crate) password_policy: V,
+    pub(crate) password_validator: V,
     #[cfg(feature = "cookie")]
     pub(crate) session_cookie: SessionCookie,
 }
@@ -53,7 +54,7 @@ where
             session_store,
             session_lifetime: DEFAULT_SESSION_LIFETIME,
             maximum_concurrent_verifications: DEFAULT_MAXIMUM_CONCURRENT_VERIFICATIONS,
-            password_policy: MinimumLength::default(),
+            password_validator: MinimumLengthPasswordValidator::default(),
             #[cfg(feature = "cookie")]
             session_cookie: SessionCookie::new(DEFAULT_SESSION_COOKIE_NAME),
         }
@@ -64,7 +65,7 @@ impl<P, S, V> AuthBuilder<P, S, V>
 where
     P: PasswordStore,
     S: SessionStore<UserId = P::UserId>,
-    V: PasswordPolicy,
+    V: PasswordValidator,
 {
     /// How long a session lasts after the login. It's never extended. 30
     /// days by default.
@@ -85,15 +86,18 @@ where
         self
     }
 
-    /// What a password has to be like to be accepted. `MinimumLength` by
-    /// default.
-    pub fn password_policy<W: PasswordPolicy>(self, password_policy: W) -> AuthBuilder<P, S, W> {
+    /// What a password has to be like to be accepted.
+    /// [`MinimumLengthPasswordValidator`] by default.
+    pub fn password_validator<W: PasswordValidator>(
+        self,
+        password_validator: W,
+    ) -> AuthBuilder<P, S, W> {
         AuthBuilder {
             password_store: self.password_store,
             session_store: self.session_store,
             session_lifetime: self.session_lifetime,
             maximum_concurrent_verifications: self.maximum_concurrent_verifications,
-            password_policy,
+            password_validator,
             #[cfg(feature = "cookie")]
             session_cookie: self.session_cookie,
         }

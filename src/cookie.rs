@@ -1,4 +1,14 @@
-//! The cookie that holds the session token.
+//! The cookie that holds the session token. Requires the default `cookie` feature.
+//!
+#![cfg_attr(
+    feature = "axum",
+    doc = "Note that if you use the [axum integration](crate::axum)"
+)]
+#![cfg_attr(
+    not(feature = "axum"),
+    doc = "Note that if you use the axum integration"
+)]
+//! the cookie is managed for you automatically.
 
 use cookie::time::OffsetDateTime;
 use cookie::{Cookie, SameSite};
@@ -8,11 +18,11 @@ use crate::auth::Session;
 /// The path of the cookie: a session is for the whole site.
 const SESSION_COOKIE_PATH: &str = "/";
 
-/// The cookie that holds the token of a session, by its name.
+/// The cookie that holds the token of a session.
 ///
-/// The cookie can't be read by scripts, is only sent over HTTPS, or to
-/// localhost, and isn't sent along with requests from other sites, except
-/// for following a link. It expires with the session.
+/// The cookie can't be read by scripts, is only sent over HTTPS or to
+/// localhost, and isn't sent along with requests from other sites, except if a
+/// link is followed. It expires with the session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SessionCookie {
     name: &'static str,
@@ -29,8 +39,8 @@ impl SessionCookie {
         self.name
     }
 
-    /// The cookie that holds the session's token, to send to the browser
-    /// after logging in.
+    /// The cookie with the session token. It is sent to the browser
+    /// once you log in.
     pub fn cookie(&self, session: &Session) -> Cookie<'static> {
         let expires = OffsetDateTime::from_unix_timestamp(session.expires_at.as_second())
             .expect("a jiff timestamp is in the range of time");
@@ -43,8 +53,7 @@ impl SessionCookie {
             .build()
     }
 
-    /// The cookie to remove the session cookie with, after logging out, such
-    /// as by a cookie jar's `remove`: it has its name and path.
+    /// A cookie to remove the cookie. Used when logging out.
     pub fn removal_cookie(&self) -> Cookie<'static> {
         Cookie::build(self.name).path(SESSION_COOKIE_PATH).build()
     }

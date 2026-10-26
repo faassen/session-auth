@@ -10,8 +10,8 @@ use crate::auth_builder::AuthBuilder;
 use crate::cookie::SessionCookie;
 use crate::credentials::Credentials;
 use crate::error::AuthError;
-use crate::password_policy::{MinimumLength, PasswordPolicy};
 use crate::password_store::PasswordStore;
+use crate::password_validator::{MinimumLengthPasswordValidator, PasswordValidator};
 use crate::session_store::{SessionInfo, SessionStore};
 use crate::session_token::SessionToken;
 
@@ -20,12 +20,12 @@ use crate::session_token::SessionToken;
 /// tell which usernames exist.
 static DUMMY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| generate_hash("dummy password"));
 
-/// A new session: the token for the browser's cookie, and when the session
-/// expires, which the cookie can expire with.
+/// A session consists of a session token by which it can be identified and the
+/// time when it expires.
 ///
 /// It has no `Debug`, so the token can't end up in a log.
 pub struct Session {
-    /// The token that identifies the session, for the browser to send back.
+    /// The token that identifies the session. This is used by the cookie.
     pub session_token: SessionToken,
     /// When the session expires.
     pub expires_at: Timestamp,
@@ -34,11 +34,11 @@ pub struct Session {
 /// The authentication API the application integrates with. This crate takes
 /// care of the authentication details, the application handles storage and UI.
 #[derive(Clone)]
-pub struct Auth<P, S, V = MinimumLength> {
+pub struct Auth<P, S, V = MinimumLengthPasswordValidator> {
     password_store: P,
     session_store: S,
     session_lifetime: SignedDuration,
-    password_policy: V,
+    password_validator: V,
     semaphore: Arc<Semaphore>,
     #[cfg(feature = "cookie")]
     session_cookie: SessionCookie,
@@ -66,7 +66,7 @@ impl<P, S, V> Auth<P, S, V>
 where
     P: PasswordStore,
     S: SessionStore<UserId = P::UserId>,
-    V: PasswordPolicy,
+    V: PasswordValidator,
 {
     /// Initialize with the stores and settings of the builder.
     pub(crate) fn from_builder(auth_builder: AuthBuilder<P, S, V>) -> Auth<P, S, V> {
@@ -74,7 +74,7 @@ where
             password_store: auth_builder.password_store,
             session_store: auth_builder.session_store,
             session_lifetime: auth_builder.session_lifetime,
-            password_policy: auth_builder.password_policy,
+            password_validator: auth_builder.password_validator,
             semaphore: Arc::new(Semaphore::new(
                 auth_builder.maximum_concurrent_verifications,
             )),
@@ -90,13 +90,13 @@ where
     }
 
     /// Create a user who logs in with the credentials, giving back their user
-    /// id. Fails if the username is taken, or the password policy doesn't
+    /// id. Fails if the username is taken, or the password validator doesn't
     /// accept the password.
     pub async fn create_user(
         &self,
         credentials: &Credentials,
     ) -> Result<P::UserId, AuthError<V::Error>> {
-        self.check_password(&credentials.password)?;
+        self.validate_password(&credentials.password)?;
         let password_hash = self.hash(&credentials.password).await?;
         self.password_store
             .create_user_with_password_hash(&credentials.username, password_hash)
@@ -106,12 +106,12 @@ where
 
     /// Change the password of the user with the credentials' username to
     /// theirs, ending the user's sessions. Fails if there's no user with the
-    /// username, or the password policy doesn't accept the password.
+    /// username, or the password validator doesn't accept the password.
     pub async fn change_password(
         &self,
         credentials: &Credentials,
     ) -> Result<(), AuthError<V::Error>> {
-        self.check_password(&credentials.password)?;
+        self.validate_password(&credentials.password)?;
         let Some(password_auth_info) = self.password_store.get_user(&credentials.username).await?
         else {
             return Err(AuthError::UnknownUsername);
@@ -198,10 +198,10 @@ where
         Ok(())
     }
 
-    /// Fails if the password policy doesn't accept the password.
-    fn check_password(&self, password: &str) -> Result<(), AuthError<V::Error>> {
-        self.password_policy
-            .check(password)
+    /// Fails if the password validator doesn't accept the password.
+    fn validate_password(&self, password: &str) -> Result<(), AuthError<V::Error>> {
+        self.password_validator
+            .validate(password)
             .map_err(AuthError::InvalidPassword)
     }
 
@@ -256,7 +256,7 @@ mod tests {
 
     use crate::auth_builder::DEFAULT_SESSION_LIFETIME;
     use crate::memory_store::{MemoryPasswordStore, MemorySessionStore, MemoryUserId};
-    use crate::password_policy::PasswordTooShort;
+    use crate::password_validator::PasswordTooShort;
 
     use super::*;
 
@@ -576,12 +576,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn refuses_password_by_configured_policy() {
+    async fn refuses_password_by_configured_validator() {
         let auth = Auth::builder(
             MemoryPasswordStore::default(),
             MemorySessionStore::default(),
         )
-        .password_policy(NoHorses)
+        .password_validator(NoHorses)
         .build();
 
         let auth_error = auth.create_user(&credentials(PASSWORD)).await.unwrap_err();
@@ -592,7 +592,7 @@ mod tests {
         ));
     }
 
-    /// A password policy that refuses passwords with a horse in them.
+    /// A password validator that refuses passwords with a horse in them.
     struct NoHorses;
 
     /// The password has a horse in it.
@@ -600,10 +600,10 @@ mod tests {
     #[error("the password has a horse in it")]
     struct HorsePassword;
 
-    impl PasswordPolicy for NoHorses {
+    impl PasswordValidator for NoHorses {
         type Error = HorsePassword;
 
-        fn check(&self, password: &str) -> Result<(), HorsePassword> {
+        fn validate(&self, password: &str) -> Result<(), HorsePassword> {
             if password.contains("horse") {
                 return Err(HorsePassword);
             }

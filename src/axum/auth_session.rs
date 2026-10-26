@@ -9,8 +9,8 @@ use jiff::Timestamp;
 use crate::auth::Auth;
 use crate::credentials::Credentials;
 use crate::error::AuthError;
-use crate::password_policy::PasswordPolicy;
 use crate::password_store::PasswordStore;
+use crate::password_validator::PasswordValidator;
 use crate::session_store::SessionStore;
 use crate::session_token::SessionToken;
 
@@ -28,10 +28,10 @@ impl<P, S, V> AuthSession<Auth<P, S, V>>
 where
     P: PasswordStore,
     S: SessionStore<UserId = P::UserId>,
-    V: PasswordPolicy,
+    V: PasswordValidator,
 {
-    /// The user id of the request's session, or `None` if it has no session
-    /// that hasn't expired.
+    /// The user id of the request's session. `None` if we cannot find the
+    /// session or the session isn't active.
     pub async fn user_id(&self) -> Result<Option<P::UserId>, AuthError<V::Error>> {
         if let Some(session_token) = self.session_token() {
             self.auth.identify(&session_token, Timestamp::now()).await

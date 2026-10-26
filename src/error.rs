@@ -3,12 +3,12 @@ use std::error::Error;
 use thiserror::Error;
 use tokio::task::JoinError;
 
-use crate::password_policy::PasswordTooShort;
+use crate::password_validator::PasswordTooShort;
 
 /// An error of the application's stores, whatever its type.
 pub type BoxError = Box<dyn Error + Send + Sync>;
 
-/// Why an operation of `Auth` failed. `E` is why its password policy
+/// Why an operation of `Auth` failed. `E` is why its password validator
 /// didn't accept a password.
 #[derive(Debug, Error)]
 pub enum AuthError<E = PasswordTooShort> {
@@ -18,7 +18,7 @@ pub enum AuthError<E = PasswordTooShort> {
     /// We tried to look up a username that doesn't exist.
     #[error("there is no user with the username")]
     UnknownUsername,
-    /// The password policy didn't accept the password.
+    /// The password validator didn't accept the password.
     #[error(transparent)]
     InvalidPassword(E),
     /// An error coming from the application generated in its storage traits
