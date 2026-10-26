@@ -1,0 +1,31 @@
+[package]
+name = "session-auth"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = { version = "1.0.104", optional = true }
+clap = { version = "4.6.7", features = ["derive"], optional = true }
+getrandom = "0.4.3"
+jiff = "0.2.38"
+password-auth = "1.0.0"
+rpassword = { version = "7.5.4", optional = true }
+sha2 = "0.11.1"
+thiserror = "2.0.21"
+tokio = { version = "1.53.2", features = ["rt", "sync"] }
+
+[features]
+# The commands to manage the users who log in with a password, for an
+# application's CLI to mount.
+cli = ["dep:anyhow", "dep:clap", "dep:rpassword"]
+
+[dev-dependencies]
+tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }
+
+# Hashing and verifying a password is slow on purpose, and unoptimized it
+# takes half a second, in many of the tests.
+[profile.dev.package.argon2]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
