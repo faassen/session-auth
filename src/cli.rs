@@ -7,6 +7,7 @@ use rpassword::prompt_password;
 use crate::auth::Auth;
 use crate::credentials::Credentials;
 use crate::password_auth_info_store::PasswordAuthInfoStore;
+use crate::password_policy::PasswordPolicy;
 use crate::session_store::SessionStore;
 
 /// The commands to manage the users who log in with a password. Both ask
@@ -21,13 +22,14 @@ pub enum PasswordUserCommand {
     ChangePassword { username: String },
 }
 
-pub async fn run_password_user_command<P, S>(
+pub async fn run_password_user_command<P, S, V>(
     password_user_command: PasswordUserCommand,
-    auth: &Auth<P, S>,
+    auth: &Auth<P, S, V>,
 ) -> Result<()>
 where
     P: PasswordAuthInfoStore,
     S: SessionStore<UserId = P::UserId>,
+    V: PasswordPolicy,
 {
     match password_user_command {
         PasswordUserCommand::CreateUser { username } => {

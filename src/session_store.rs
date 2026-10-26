@@ -14,6 +14,10 @@ pub struct SessionInfo<UserId> {
     pub expires_at: Timestamp,
 }
 
+/// How the application writes and obtain session information.
+///
+/// Implement this trait in your application on top of whatever storage it's
+/// using.
 pub trait SessionStore: Send + Sync {
     type UserId: Clone;
 

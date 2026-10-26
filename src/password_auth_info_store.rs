@@ -12,6 +12,10 @@ pub struct PasswordAuthInfo<UserId> {
     pub password_hash: String,
 }
 
+/// How to create and get password information for users in your application.
+///
+/// Implement this store trait in your application on top of whatever storage
+/// it's using.
 pub trait PasswordAuthInfoStore: Send + Sync {
     /// Application-level user id.
     type UserId: Clone;

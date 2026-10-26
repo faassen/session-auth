@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 anyhow = { version = "1.0.104", optional = true }
 clap = { version = "4.6.7", features = ["derive"], optional = true }
+cookie = { version = "0.18.2", optional = true }
 getrandom = "0.4.3"
 jiff = "0.2.38"
 password-auth = "1.0.0"
@@ -16,9 +17,13 @@ thiserror = "2.0.21"
 tokio = { version = "1.53.2", features = ["rt", "sync"] }
 
 [features]
+default = ["cookie"]
 # The commands to manage the users who log in with a password, for an
 # application's CLI to mount.
 cli = ["dep:anyhow", "dep:clap", "dep:rpassword"]
+# The cookie that holds the session token, by the `cookie` crate that web
+# frameworks such as axum, actix-web and Rocket use.
+cookie = ["dep:cookie"]
 
 [dev-dependencies]
 tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }
@@ -29,3 +34,10 @@ tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }
 opt-level = 3
 [profile.dev.package.blake2]
 opt-level = 3
+
+# Document every feature on docs.rs.
+[package.metadata.docs.rs]
+all-features = true
+
+[lints.rust]
+missing_docs = "warn"

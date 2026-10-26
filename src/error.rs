@@ -3,17 +3,19 @@ use std::error::Error;
 use thiserror::Error;
 use tokio::task::JoinError;
 
-use crate::auth::MINIMUM_PASSWORD_LENGTH;
+use crate::password_policy::PasswordTooShort;
 
-/// Why an operation of `Auth` failed.
+/// Why an operation of `Auth` failed. `E` is why its password policy
+/// didn't accept a password.
 #[derive(Debug, Error)]
-pub enum AuthError {
+pub enum AuthError<E = PasswordTooShort> {
     #[error("the username is taken")]
     UsernameTaken,
     #[error("there is no user with the username")]
     UnknownUsername,
-    #[error("the password is shorter than {MINIMUM_PASSWORD_LENGTH} characters")]
-    PasswordTooShort,
+    /// The password policy didn't accept the password.
+    #[error(transparent)]
+    InvalidPassword(E),
     #[error(transparent)]
     Store(#[from] StoreError),
     /// Hashing or verifying a password, on a thread for blocking work,

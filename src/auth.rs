@@ -5,20 +5,13 @@ use password_auth::{generate_hash, verify_password};
 use tokio::sync::Semaphore;
 use tokio::task::spawn_blocking;
 
+use crate::auth_builder::AuthBuilder;
 use crate::credentials::Credentials;
 use crate::error::AuthError;
 use crate::password_auth_info_store::PasswordAuthInfoStore;
+use crate::password_policy::{MinimumLength, PasswordPolicy};
 use crate::session_store::{SessionInfo, SessionStore};
 use crate::session_token::SessionToken;
-
-/// NIST's minimum for passwords people choose themselves.
-pub const MINIMUM_PASSWORD_LENGTH: usize = 8;
-/// How long a session lasts after the login. It's never extended.
-const SESSION_LIFETIME: SignedDuration = SignedDuration::from_hours(30 * 24);
-/// Hashing or verifying a password takes some 19 MiB and a core while it runs, so we want
-/// to prevent denial of service by limiting how much we verify at any point in
-/// time.
-const MAXIMUM_CONCURRENT_VERIFICATIONS: usize = 4;
 
 /// Verified against when there's no user with the username, so an unknown
 /// username takes as long to refuse as a wrong password, and the time doesn't
@@ -30,16 +23,20 @@ static DUMMY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| generate_hash("d
 ///
 /// It has no `Debug`, so the token can't end up in a log.
 pub struct Session {
+    /// The token that identifies the session, for the browser to send back.
     pub session_token: SessionToken,
+    /// When the session expires.
     pub expires_at: Timestamp,
 }
 
 /// The authentication API the application integrates with. This crate takes
 /// care of the authentication details, the application handles storage and UI.
 #[derive(Clone)]
-pub struct Auth<P, S> {
+pub struct Auth<P, S, V = MinimumLength> {
     password_auth_info_store: P,
     session_store: S,
+    session_lifetime: SignedDuration,
+    password_policy: V,
     semaphore: Arc<Semaphore>,
 }
 
@@ -48,20 +45,50 @@ where
     P: PasswordAuthInfoStore,
     S: SessionStore<UserId = P::UserId>,
 {
-    /// Initialize with the application's password authentication store and session store.
+    /// Initialize with the application's password authentication store and
+    /// session store, and the defaults.
     pub fn new(password_auth_info_store: P, session_store: S) -> Auth<P, S> {
+        Auth::builder(password_auth_info_store, session_store).build()
+    }
+
+    /// A builder of an `Auth` with the application's password authentication
+    /// store and session store, to change the defaults with.
+    pub fn builder(password_auth_info_store: P, session_store: S) -> AuthBuilder<P, S> {
+        AuthBuilder::new(password_auth_info_store, session_store)
+    }
+}
+
+impl<P, S, V> Auth<P, S, V>
+where
+    P: PasswordAuthInfoStore,
+    S: SessionStore<UserId = P::UserId>,
+    V: PasswordPolicy,
+{
+    /// Initialize with the stores and settings, as `AuthBuilder` builds it.
+    pub(crate) fn with_settings(
+        password_auth_info_store: P,
+        session_store: S,
+        session_lifetime: SignedDuration,
+        maximum_concurrent_verifications: usize,
+        password_policy: V,
+    ) -> Auth<P, S, V> {
         Auth {
             password_auth_info_store,
             session_store,
-            semaphore: Arc::new(Semaphore::new(MAXIMUM_CONCURRENT_VERIFICATIONS)),
+            session_lifetime,
+            password_policy,
+            semaphore: Arc::new(Semaphore::new(maximum_concurrent_verifications)),
         }
     }
 
     /// Create a user who logs in with the credentials, giving back their user
-    /// id. Fails if the username is taken, or the password is shorter than
-    /// `MINIMUM_PASSWORD_LENGTH`.
-    pub async fn create_user(&self, credentials: &Credentials) -> Result<P::UserId, AuthError> {
-        check_password_length(&credentials.password)?;
+    /// id. Fails if the username is taken, or the password policy doesn't
+    /// accept the password.
+    pub async fn create_user(
+        &self,
+        credentials: &Credentials,
+    ) -> Result<P::UserId, AuthError<V::Error>> {
+        self.check_password(&credentials.password)?;
         let password_hash = self.hash(&credentials.password).await?;
         self.password_auth_info_store
             .create_user_with_password_hash(&credentials.username, password_hash)
@@ -71,9 +98,12 @@ where
 
     /// Change the password of the user with the credentials' username to
     /// theirs, ending the user's sessions. Fails if there's no user with the
-    /// username, or the password is shorter than `MINIMUM_PASSWORD_LENGTH`.
-    pub async fn change_password(&self, credentials: &Credentials) -> Result<(), AuthError> {
-        check_password_length(&credentials.password)?;
+    /// username, or the password policy doesn't accept the password.
+    pub async fn change_password(
+        &self,
+        credentials: &Credentials,
+    ) -> Result<(), AuthError<V::Error>> {
+        self.check_password(&credentials.password)?;
         let Some(password_auth_info) = self
             .password_auth_info_store
             .get_password_auth_info(&credentials.username)
@@ -100,7 +130,7 @@ where
         &self,
         credentials: &Credentials,
         now: Timestamp,
-    ) -> Result<Option<Session>, AuthError> {
+    ) -> Result<Option<Session>, AuthError<V::Error>> {
         let Some(password_auth_info) = self
             .password_auth_info_store
             .get_password_auth_info(&credentials.username)
@@ -121,7 +151,7 @@ where
         // clean up any expired sessions
         self.session_store.remove_expired_sessions(now).await?;
         let session_token = SessionToken::generate()?;
-        let expires_at = now + SESSION_LIFETIME;
+        let expires_at = now + self.session_lifetime;
         self.session_store
             .set_session(
                 &session_token.token_hash(),
@@ -144,7 +174,7 @@ where
         &self,
         session_token: &SessionToken,
         now: Timestamp,
-    ) -> Result<Option<P::UserId>, AuthError> {
+    ) -> Result<Option<P::UserId>, AuthError<V::Error>> {
         let session_info = self
             .session_store
             .get_session(&session_token.token_hash())
@@ -159,22 +189,33 @@ where
     }
 
     /// End the session the token is of, if any.
-    pub async fn log_out(&self, session_token: &SessionToken) -> Result<(), AuthError> {
+    pub async fn log_out(&self, session_token: &SessionToken) -> Result<(), AuthError<V::Error>> {
         self.session_store
             .remove_session(&session_token.token_hash())
             .await?;
         Ok(())
     }
 
+    /// Fails if the password policy doesn't accept the password.
+    fn check_password(&self, password: &str) -> Result<(), AuthError<V::Error>> {
+        self.password_policy
+            .check(password)
+            .map_err(AuthError::InvalidPassword)
+    }
+
     /// The password's hash.
-    async fn hash(&self, password: &str) -> Result<String, AuthError> {
+    async fn hash(&self, password: &str) -> Result<String, AuthError<V::Error>> {
         let password = password.to_string();
         self.run_password_task(move || generate_hash(password))
             .await
     }
 
     /// Whether the password has the hash.
-    async fn verify(&self, password_hash: String, password: &str) -> Result<bool, AuthError> {
+    async fn verify(
+        &self,
+        password_hash: String,
+        password: &str,
+    ) -> Result<bool, AuthError<V::Error>> {
         let password = password.to_string();
         self.run_password_task(move || verify_password(password, &password_hash).is_ok())
             .await
@@ -186,7 +227,7 @@ where
     async fn run_password_task<T: Send + 'static>(
         &self,
         password_task: impl FnOnce() -> T + Send + 'static,
-    ) -> Result<T, AuthError> {
+    ) -> Result<T, AuthError<V::Error>> {
         // Here we try to acquire a permit, and wait if the maximum has been
         // handed out already.
         // The permit goes along into the spawned thread, so it's only given
@@ -206,19 +247,14 @@ where
     }
 }
 
-/// Fails if the password is shorter than `MINIMUM_PASSWORD_LENGTH`.
-fn check_password_length(password: &str) -> Result<(), AuthError> {
-    if password.chars().count() < MINIMUM_PASSWORD_LENGTH {
-        return Err(AuthError::PasswordTooShort);
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use password_auth::verify_password;
+    use thiserror::Error;
 
+    use crate::auth_builder::DEFAULT_SESSION_LIFETIME;
     use crate::memory_store::{MemoryPasswordAuthInfoStore, MemorySessionStore, MemoryUserId};
+    use crate::password_policy::PasswordTooShort;
 
     use super::*;
 
@@ -283,7 +319,10 @@ mod tests {
 
         let auth_error = auth.create_user(&credentials("short")).await.unwrap_err();
 
-        assert!(matches!(auth_error, AuthError::PasswordTooShort));
+        assert!(matches!(
+            auth_error,
+            AuthError::InvalidPassword(PasswordTooShort { minimum: 8 })
+        ));
         assert!(
             auth.password_auth_info_store
                 .get_password_auth_info(USERNAME)
@@ -354,7 +393,10 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(matches!(auth_error, AuthError::PasswordTooShort));
+        assert!(matches!(
+            auth_error,
+            AuthError::InvalidPassword(PasswordTooShort { minimum: 8 })
+        ));
         let password_auth_info = auth
             .password_auth_info_store
             .get_password_auth_info(USERNAME)
@@ -382,7 +424,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(session_info.user_id, memory_user_id);
-        assert_eq!(session_info.expires_at, now() + SESSION_LIFETIME);
+        assert_eq!(session_info.expires_at, now() + DEFAULT_SESSION_LIFETIME);
         assert_eq!(session.expires_at, session_info.expires_at);
     }
 
@@ -414,7 +456,7 @@ mod tests {
         create_user(&auth, &credentials(PASSWORD)).await;
         let expired_session_token = log_in(&auth, &credentials(PASSWORD)).await;
 
-        let later = now() + SESSION_LIFETIME + SignedDuration::from_secs(1);
+        let later = now() + DEFAULT_SESSION_LIFETIME + SignedDuration::from_secs(1);
         let session_token = auth
             .log_in(&credentials(PASSWORD), later)
             .await
@@ -457,7 +499,7 @@ mod tests {
         let session_token = log_in(&auth, &credentials(PASSWORD)).await;
 
         let user_id = auth
-            .identify(&session_token, now() + SESSION_LIFETIME)
+            .identify(&session_token, now() + DEFAULT_SESSION_LIFETIME)
             .await
             .unwrap();
 
@@ -509,6 +551,62 @@ mod tests {
         let result = auth.log_out(&SessionToken::generate().unwrap()).await;
 
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn session_lasts_configured_lifetime() {
+        let session_lifetime = SignedDuration::from_hours(1);
+        let auth = Auth::builder(
+            MemoryPasswordAuthInfoStore::default(),
+            MemorySessionStore::default(),
+        )
+        .session_lifetime(session_lifetime)
+        .build();
+        create_user(&auth, &credentials(PASSWORD)).await;
+
+        let session = auth
+            .log_in(&credentials(PASSWORD), now())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(session.expires_at, now() + session_lifetime);
+    }
+
+    #[tokio::test]
+    async fn refuses_password_by_configured_policy() {
+        let auth = Auth::builder(
+            MemoryPasswordAuthInfoStore::default(),
+            MemorySessionStore::default(),
+        )
+        .password_policy(NoHorses)
+        .build();
+
+        let auth_error = auth.create_user(&credentials(PASSWORD)).await.unwrap_err();
+
+        assert!(matches!(
+            auth_error,
+            AuthError::InvalidPassword(HorsePassword)
+        ));
+    }
+
+    /// A password policy that refuses passwords with a horse in them.
+    struct NoHorses;
+
+    /// The password has a horse in it.
+    #[derive(Debug, Error)]
+    #[error("the password has a horse in it")]
+    struct HorsePassword;
+
+    impl PasswordPolicy for NoHorses {
+        type Error = HorsePassword;
+
+        fn check(&self, password: &str) -> Result<(), HorsePassword> {
+            if password.contains("horse") {
+                return Err(HorsePassword);
+            }
+            Ok(())
+        }
     }
 
     async fn create_user(
