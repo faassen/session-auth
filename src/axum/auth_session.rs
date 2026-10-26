@@ -40,8 +40,10 @@ where
         }
     }
 
-    /// Log in with the credentials, to a new session. The cookies to respond
-    /// with set the session cookie. `None` if the credentials are wrong.
+    /// Log in with credentials, creating a new session. 
+    ///
+    /// Return the cookie jar in your own axum handler so the session cookie is added.
+    /// Returns `None` if the credentials are wrong.
     pub async fn log_in(
         self,
         credentials: &Credentials,
@@ -54,8 +56,10 @@ where
         }
     }
 
-    /// End the session of the request's session cookie, if any. The cookies
-    /// to respond with remove the session cookie.
+    /// End the session of the request's session cookie, if any. 
+    /// 
+    /// Return the cookie jar in your own axum handler so the session cookie is
+    /// removed.
     pub async fn log_out(self) -> Result<CookieJar, AuthError<V::Error>> {
         if let Some(session_token) = self.session_token() {
             self.auth.log_out(&session_token).await?;
