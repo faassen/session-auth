@@ -51,6 +51,8 @@ impl SessionToken {
 pub struct TokenHash([u8; 32]);
 
 impl TokenHash {
+    /// The bytes of this token hash. The session store uses
+    /// this as the key for session information.
     pub fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
