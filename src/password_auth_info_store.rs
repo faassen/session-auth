@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use crate::error::StoreError;
+use crate::error::BoxError;
 
 /// The login information the application needs to store per user (identified by
 /// username).
@@ -23,7 +23,7 @@ pub trait PasswordAuthInfoStore: Send + Sync {
     fn get_password_auth_info(
         &self,
         username: &str,
-    ) -> impl Future<Output = Result<Option<PasswordAuthInfo<Self::UserId>>, StoreError>> + Send;
+    ) -> impl Future<Output = Result<Option<PasswordAuthInfo<Self::UserId>>, BoxError>> + Send;
 
     /// Create a user who logs in with the username and the password hash:
     /// the user and their password auth info both or neither. `None` if the
@@ -32,12 +32,12 @@ pub trait PasswordAuthInfoStore: Send + Sync {
         &self,
         username: &str,
         password_hash: String,
-    ) -> impl Future<Output = Result<Option<Self::UserId>, StoreError>> + Send;
+    ) -> impl Future<Output = Result<Option<Self::UserId>, BoxError>> + Send;
 
     /// Set the password hash of the user with the username.
     fn set_password_hash(
         &self,
         username: &str,
         password_hash: String,
-    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+    ) -> impl Future<Output = Result<(), BoxError>> + Send;
 }

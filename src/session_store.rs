@@ -2,7 +2,7 @@ use std::future::Future;
 
 use jiff::Timestamp;
 
-use crate::error::StoreError;
+use crate::error::BoxError;
 use crate::session_token::TokenHash;
 
 /// The information the application needs to store per session (identified by
@@ -24,29 +24,29 @@ pub trait SessionStore: Send + Sync {
     fn get_session(
         &self,
         token_hash: &TokenHash,
-    ) -> impl Future<Output = Result<Option<SessionInfo<Self::UserId>>, StoreError>> + Send;
+    ) -> impl Future<Output = Result<Option<SessionInfo<Self::UserId>>, BoxError>> + Send;
 
     fn set_session(
         &self,
         token_hash: &TokenHash,
         session_info: SessionInfo<Self::UserId>,
-    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+    ) -> impl Future<Output = Result<(), BoxError>> + Send;
 
     fn remove_session(
         &self,
         token_hash: &TokenHash,
-    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+    ) -> impl Future<Output = Result<(), BoxError>> + Send;
 
     /// Remove all sessions of the user.
     fn remove_user_sessions(
         &self,
         user_id: &Self::UserId,
-    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+    ) -> impl Future<Output = Result<(), BoxError>> + Send;
 
     /// Remove the expired sessions. A session has expired when its
     /// `expires_at` is equal to or earlier than `now`.
     fn remove_expired_sessions(
         &self,
         now: Timestamp,
-    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+    ) -> impl Future<Output = Result<(), BoxError>> + Send;
 }

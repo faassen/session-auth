@@ -4,7 +4,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use jiff::Timestamp;
 
-use crate::error::StoreError;
+use crate::error::BoxError;
 use crate::password_auth_info_store::{PasswordAuthInfo, PasswordAuthInfoStore};
 use crate::session_store::{SessionInfo, SessionStore};
 use crate::session_token::TokenHash;
@@ -34,7 +34,7 @@ impl PasswordAuthInfoStore for MemoryPasswordAuthInfoStore {
     async fn get_password_auth_info(
         &self,
         username: &str,
-    ) -> Result<Option<PasswordAuthInfo<MemoryUserId>>, StoreError> {
+    ) -> Result<Option<PasswordAuthInfo<MemoryUserId>>, BoxError> {
         Ok(lock(&self.password_auth_infos).get(username).cloned())
     }
 
@@ -42,7 +42,7 @@ impl PasswordAuthInfoStore for MemoryPasswordAuthInfoStore {
         &self,
         username: &str,
         password_hash: String,
-    ) -> Result<Option<MemoryUserId>, StoreError> {
+    ) -> Result<Option<MemoryUserId>, BoxError> {
         let mut password_auth_infos = lock(&self.password_auth_infos);
         if password_auth_infos.contains_key(username) {
             return Ok(None);
@@ -62,7 +62,7 @@ impl PasswordAuthInfoStore for MemoryPasswordAuthInfoStore {
         &self,
         username: &str,
         password_hash: String,
-    ) -> Result<(), StoreError> {
+    ) -> Result<(), BoxError> {
         if let Some(password_auth_info) = lock(&self.password_auth_infos).get_mut(username) {
             password_auth_info.password_hash = password_hash;
         }
@@ -82,7 +82,7 @@ impl SessionStore for MemorySessionStore {
     async fn get_session(
         &self,
         token_hash: &TokenHash,
-    ) -> Result<Option<SessionInfo<MemoryUserId>>, StoreError> {
+    ) -> Result<Option<SessionInfo<MemoryUserId>>, BoxError> {
         Ok(lock(&self.session_infos).get(token_hash).cloned())
     }
 
@@ -90,22 +90,22 @@ impl SessionStore for MemorySessionStore {
         &self,
         token_hash: &TokenHash,
         session_info: SessionInfo<MemoryUserId>,
-    ) -> Result<(), StoreError> {
+    ) -> Result<(), BoxError> {
         lock(&self.session_infos).insert(token_hash.clone(), session_info);
         Ok(())
     }
 
-    async fn remove_session(&self, token_hash: &TokenHash) -> Result<(), StoreError> {
+    async fn remove_session(&self, token_hash: &TokenHash) -> Result<(), BoxError> {
         lock(&self.session_infos).remove(token_hash);
         Ok(())
     }
 
-    async fn remove_user_sessions(&self, user_id: &MemoryUserId) -> Result<(), StoreError> {
+    async fn remove_user_sessions(&self, user_id: &MemoryUserId) -> Result<(), BoxError> {
         lock(&self.session_infos).retain(|_, session_info| session_info.user_id != *user_id);
         Ok(())
     }
 
-    async fn remove_expired_sessions(&self, now: Timestamp) -> Result<(), StoreError> {
+    async fn remove_expired_sessions(&self, now: Timestamp) -> Result<(), BoxError> {
         lock(&self.session_infos).retain(|_, session_info| session_info.expires_at > now);
         Ok(())
     }

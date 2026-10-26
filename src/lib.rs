@@ -20,7 +20,7 @@ pub use auth_builder::AuthBuilder;
 #[cfg(feature = "cli")]
 pub use cli::{PasswordUserCommand, run_password_user_command};
 pub use credentials::Credentials;
-pub use error::{AuthError, StoreError};
+pub use error::{AuthError, BoxError, StoreError};
 pub use password_auth_info_store::{PasswordAuthInfo, PasswordAuthInfoStore};
 pub use password_policy::{MinimumLength, PasswordPolicy, PasswordTooShort};
 #[cfg(feature = "cookie")]
