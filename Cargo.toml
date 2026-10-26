@@ -6,6 +6,8 @@ publish = false
 
 [dependencies]
 anyhow = { version = "1.0.104", optional = true }
+axum = { version = "0.8.9", default-features = false, optional = true }
+axum-extra = { version = "0.12.6", default-features = false, features = ["cookie"], optional = true }
 clap = { version = "4.6.7", features = ["derive"], optional = true }
 cookie = { version = "0.18.2", optional = true }
 getrandom = "0.4.3"
@@ -18,6 +20,13 @@ tokio = { version = "1.53.2", features = ["rt", "sync"] }
 
 [features]
 default = ["cookie"]
+# Logging in and out, and identifying the user of a request, by the session
+# cookie, in axum.
+axum = [
+    "cookie",
+    "dep:axum",
+    "dep:axum-extra",
+]
 # The commands to manage the users who log in with a password, for an
 # application's CLI to mount.
 cli = ["dep:anyhow", "dep:clap", "dep:rpassword"]
@@ -26,7 +35,9 @@ cli = ["dep:anyhow", "dep:clap", "dep:rpassword"]
 cookie = ["dep:cookie"]
 
 [dev-dependencies]
+axum = "0.8.9"
 tokio = { version = "1.53.2", features = ["macros", "rt-multi-thread"] }
+tower = { version = "0.5.3", features = ["util"] }
 
 # Hashing and verifying a password is slow on purpose, and unoptimized it
 # takes half a second, in many of the tests.

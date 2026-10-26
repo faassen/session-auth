@@ -1,6 +1,8 @@
 use jiff::SignedDuration;
 
 use crate::auth::Auth;
+#[cfg(feature = "cookie")]
+use crate::cookie::SessionCookie;
 use crate::password_policy::{MinimumLength, PasswordPolicy};
 use crate::password_store::PasswordStore;
 use crate::session_store::SessionStore;
@@ -9,6 +11,9 @@ use crate::session_store::SessionStore;
 pub(crate) const DEFAULT_SESSION_LIFETIME: SignedDuration = SignedDuration::from_hours(30 * 24);
 /// How many passwords are hashed or verified at once by default.
 const DEFAULT_MAXIMUM_CONCURRENT_VERIFICATIONS: usize = 4;
+/// The name of the session cookie by default.
+#[cfg(feature = "cookie")]
+const DEFAULT_SESSION_COOKIE_NAME: &str = "session";
 
 /// Builds an `Auth`, from `Auth::builder`. What isn't set keeps its default.
 ///
@@ -27,11 +32,13 @@ const DEFAULT_MAXIMUM_CONCURRENT_VERIFICATIONS: usize = 4;
 /// }
 /// ```
 pub struct AuthBuilder<P, S, V = MinimumLength> {
-    password_store: P,
-    session_store: S,
-    session_lifetime: SignedDuration,
-    maximum_concurrent_verifications: usize,
-    password_policy: V,
+    pub(crate) password_store: P,
+    pub(crate) session_store: S,
+    pub(crate) session_lifetime: SignedDuration,
+    pub(crate) maximum_concurrent_verifications: usize,
+    pub(crate) password_policy: V,
+    #[cfg(feature = "cookie")]
+    pub(crate) session_cookie: SessionCookie,
 }
 
 impl<P, S> AuthBuilder<P, S>
@@ -47,6 +54,8 @@ where
             session_lifetime: DEFAULT_SESSION_LIFETIME,
             maximum_concurrent_verifications: DEFAULT_MAXIMUM_CONCURRENT_VERIFICATIONS,
             password_policy: MinimumLength::default(),
+            #[cfg(feature = "cookie")]
+            session_cookie: SessionCookie::new(DEFAULT_SESSION_COOKIE_NAME),
         }
     }
 }
@@ -85,17 +94,20 @@ where
             session_lifetime: self.session_lifetime,
             maximum_concurrent_verifications: self.maximum_concurrent_verifications,
             password_policy,
+            #[cfg(feature = "cookie")]
+            session_cookie: self.session_cookie,
         }
+    }
+
+    /// The name of the session cookie. `session` by default.
+    #[cfg(feature = "cookie")]
+    pub fn cookie_name(mut self, cookie_name: &'static str) -> AuthBuilder<P, S, V> {
+        self.session_cookie = SessionCookie::new(cookie_name);
+        self
     }
 
     /// The `Auth`.
     pub fn build(self) -> Auth<P, S, V> {
-        Auth::with_settings(
-            self.password_store,
-            self.session_store,
-            self.session_lifetime,
-            self.maximum_concurrent_verifications,
-            self.password_policy,
-        )
+        Auth::from_builder(self)
     }
 }

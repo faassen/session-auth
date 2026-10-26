@@ -6,6 +6,8 @@ use tokio::sync::Semaphore;
 use tokio::task::spawn_blocking;
 
 use crate::auth_builder::AuthBuilder;
+#[cfg(feature = "cookie")]
+use crate::cookie::SessionCookie;
 use crate::credentials::Credentials;
 use crate::error::AuthError;
 use crate::password_policy::{MinimumLength, PasswordPolicy};
@@ -38,6 +40,8 @@ pub struct Auth<P, S, V = MinimumLength> {
     session_lifetime: SignedDuration,
     password_policy: V,
     semaphore: Arc<Semaphore>,
+    #[cfg(feature = "cookie")]
+    session_cookie: SessionCookie,
 }
 
 impl<P, S> Auth<P, S>
@@ -64,21 +68,25 @@ where
     S: SessionStore<UserId = P::UserId>,
     V: PasswordPolicy,
 {
-    /// Initialize with the stores and settings, as `AuthBuilder` builds it.
-    pub(crate) fn with_settings(
-        password_store: P,
-        session_store: S,
-        session_lifetime: SignedDuration,
-        maximum_concurrent_verifications: usize,
-        password_policy: V,
-    ) -> Auth<P, S, V> {
+    /// Initialize with the stores and settings of the builder.
+    pub(crate) fn from_builder(auth_builder: AuthBuilder<P, S, V>) -> Auth<P, S, V> {
         Auth {
-            password_store,
-            session_store,
-            session_lifetime,
-            password_policy,
-            semaphore: Arc::new(Semaphore::new(maximum_concurrent_verifications)),
+            password_store: auth_builder.password_store,
+            session_store: auth_builder.session_store,
+            session_lifetime: auth_builder.session_lifetime,
+            password_policy: auth_builder.password_policy,
+            semaphore: Arc::new(Semaphore::new(
+                auth_builder.maximum_concurrent_verifications,
+            )),
+            #[cfg(feature = "cookie")]
+            session_cookie: auth_builder.session_cookie,
         }
+    }
+
+    /// The cookie that holds the session token.
+    #[cfg(feature = "cookie")]
+    pub fn session_cookie(&self) -> SessionCookie {
+        self.session_cookie
     }
 
     /// Create a user who logs in with the credentials, giving back their user

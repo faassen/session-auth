@@ -1,3 +1,5 @@
+//! The cookie that holds the session token.
+
 use cookie::time::OffsetDateTime;
 use cookie::{Cookie, SameSite};
 

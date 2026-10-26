@@ -1,3 +1,6 @@
+//! The commands to manage the users who log in with a password, for an
+//! application's CLI to mount.
+
 use std::io::{IsTerminal, stdin};
 
 use anyhow::{Context, Result, bail};
