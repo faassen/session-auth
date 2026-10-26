@@ -1,8 +1,8 @@
 use jiff::SignedDuration;
 
 use crate::auth::Auth;
-use crate::password_auth_info_store::PasswordAuthInfoStore;
 use crate::password_policy::{MinimumLength, PasswordPolicy};
+use crate::password_store::PasswordStore;
 use crate::session_store::SessionStore;
 
 /// How long a session lasts by default.
@@ -14,20 +14,20 @@ const DEFAULT_MAXIMUM_CONCURRENT_VERIFICATIONS: usize = 4;
 ///
 /// ```
 /// # use jiff::SignedDuration;
-/// # use session_auth::{Auth, MinimumLength, PasswordAuthInfoStore, SessionStore};
-/// fn auth<P, S>(password_auth_info_store: P, session_store: S) -> Auth<P, S>
+/// # use session_auth::{Auth, MinimumLength, PasswordStore, SessionStore};
+/// fn auth<P, S>(password_store: P, session_store: S) -> Auth<P, S>
 /// where
-///     P: PasswordAuthInfoStore,
+///     P: PasswordStore,
 ///     S: SessionStore<UserId = P::UserId>,
 /// {
-///     Auth::builder(password_auth_info_store, session_store)
+///     Auth::builder(password_store, session_store)
 ///         .session_lifetime(SignedDuration::from_hours(7 * 24))
 ///         .password_policy(MinimumLength(12))
 ///         .build()
 /// }
 /// ```
 pub struct AuthBuilder<P, S, V = MinimumLength> {
-    password_auth_info_store: P,
+    password_store: P,
     session_store: S,
     session_lifetime: SignedDuration,
     maximum_concurrent_verifications: usize,
@@ -36,13 +36,13 @@ pub struct AuthBuilder<P, S, V = MinimumLength> {
 
 impl<P, S> AuthBuilder<P, S>
 where
-    P: PasswordAuthInfoStore,
+    P: PasswordStore,
     S: SessionStore<UserId = P::UserId>,
 {
     /// A builder with the defaults, for the stores.
-    pub(crate) fn new(password_auth_info_store: P, session_store: S) -> AuthBuilder<P, S> {
+    pub(crate) fn new(password_store: P, session_store: S) -> AuthBuilder<P, S> {
         AuthBuilder {
-            password_auth_info_store,
+            password_store,
             session_store,
             session_lifetime: DEFAULT_SESSION_LIFETIME,
             maximum_concurrent_verifications: DEFAULT_MAXIMUM_CONCURRENT_VERIFICATIONS,
@@ -53,7 +53,7 @@ where
 
 impl<P, S, V> AuthBuilder<P, S, V>
 where
-    P: PasswordAuthInfoStore,
+    P: PasswordStore,
     S: SessionStore<UserId = P::UserId>,
     V: PasswordPolicy,
 {
@@ -80,7 +80,7 @@ where
     /// default.
     pub fn password_policy<W: PasswordPolicy>(self, password_policy: W) -> AuthBuilder<P, S, W> {
         AuthBuilder {
-            password_auth_info_store: self.password_auth_info_store,
+            password_store: self.password_store,
             session_store: self.session_store,
             session_lifetime: self.session_lifetime,
             maximum_concurrent_verifications: self.maximum_concurrent_verifications,
@@ -91,7 +91,7 @@ where
     /// The `Auth`.
     pub fn build(self) -> Auth<P, S, V> {
         Auth::with_settings(
-            self.password_auth_info_store,
+            self.password_store,
             self.session_store,
             self.session_lifetime,
             self.maximum_concurrent_verifications,

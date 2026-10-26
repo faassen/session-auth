@@ -5,7 +5,7 @@ use std::sync::{Mutex, MutexGuard};
 use jiff::Timestamp;
 
 use crate::error::BoxError;
-use crate::password_auth_info_store::{PasswordAuthInfo, PasswordAuthInfoStore};
+use crate::password_store::{PasswordStore, PasswordUser};
 use crate::session_store::{SessionInfo, SessionStore};
 use crate::session_token::TokenHash;
 
@@ -22,20 +22,20 @@ fn next_user_id() -> MemoryUserId {
     MemoryUserId(LAST_USER_ID.fetch_add(1, Ordering::Relaxed) + 1)
 }
 
-/// An in-memory password auth info store for testing purposes.
+/// An in-memory password store for testing purposes.
 #[derive(Default)]
-pub struct MemoryPasswordAuthInfoStore {
-    password_auth_infos: Mutex<HashMap<String, PasswordAuthInfo<MemoryUserId>>>,
+pub struct MemoryPasswordStore {
+    password_users: Mutex<HashMap<String, PasswordUser<MemoryUserId>>>,
 }
 
-impl PasswordAuthInfoStore for MemoryPasswordAuthInfoStore {
+impl PasswordStore for MemoryPasswordStore {
     type UserId = MemoryUserId;
 
-    async fn get_password_auth_info(
+    async fn get_user(
         &self,
         username: &str,
-    ) -> Result<Option<PasswordAuthInfo<MemoryUserId>>, BoxError> {
-        Ok(lock(&self.password_auth_infos).get(username).cloned())
+    ) -> Result<Option<PasswordUser<MemoryUserId>>, BoxError> {
+        Ok(lock(&self.password_users).get(username).cloned())
     }
 
     async fn create_user_with_password_hash(
@@ -43,14 +43,14 @@ impl PasswordAuthInfoStore for MemoryPasswordAuthInfoStore {
         username: &str,
         password_hash: String,
     ) -> Result<Option<MemoryUserId>, BoxError> {
-        let mut password_auth_infos = lock(&self.password_auth_infos);
-        if password_auth_infos.contains_key(username) {
+        let mut password_users = lock(&self.password_users);
+        if password_users.contains_key(username) {
             return Ok(None);
         }
         let user_id = next_user_id();
-        password_auth_infos.insert(
+        password_users.insert(
             username.to_string(),
-            PasswordAuthInfo {
+            PasswordUser {
                 user_id,
                 password_hash,
             },
@@ -63,7 +63,7 @@ impl PasswordAuthInfoStore for MemoryPasswordAuthInfoStore {
         username: &str,
         password_hash: String,
     ) -> Result<(), BoxError> {
-        if let Some(password_auth_info) = lock(&self.password_auth_infos).get_mut(username) {
+        if let Some(password_auth_info) = lock(&self.password_users).get_mut(username) {
             password_auth_info.password_hash = password_hash;
         }
         Ok(())

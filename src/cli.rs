@@ -6,8 +6,8 @@ use rpassword::prompt_password;
 
 use crate::auth::Auth;
 use crate::credentials::Credentials;
-use crate::password_auth_info_store::PasswordAuthInfoStore;
 use crate::password_policy::PasswordPolicy;
+use crate::password_store::PasswordStore;
 use crate::session_store::SessionStore;
 
 /// The commands to manage the users who log in with a password. Both ask
@@ -27,7 +27,7 @@ pub async fn run_password_user_command<P, S, V>(
     auth: &Auth<P, S, V>,
 ) -> Result<()>
 where
-    P: PasswordAuthInfoStore,
+    P: PasswordStore,
     S: SessionStore<UserId = P::UserId>,
     V: PasswordPolicy,
 {

@@ -8,8 +8,8 @@ use tokio::task::spawn_blocking;
 use crate::auth_builder::AuthBuilder;
 use crate::credentials::Credentials;
 use crate::error::AuthError;
-use crate::password_auth_info_store::PasswordAuthInfoStore;
 use crate::password_policy::{MinimumLength, PasswordPolicy};
+use crate::password_store::PasswordStore;
 use crate::session_store::{SessionInfo, SessionStore};
 use crate::session_token::SessionToken;
 
@@ -33,7 +33,7 @@ pub struct Session {
 /// care of the authentication details, the application handles storage and UI.
 #[derive(Clone)]
 pub struct Auth<P, S, V = MinimumLength> {
-    password_auth_info_store: P,
+    password_store: P,
     session_store: S,
     session_lifetime: SignedDuration,
     password_policy: V,
@@ -42,38 +42,38 @@ pub struct Auth<P, S, V = MinimumLength> {
 
 impl<P, S> Auth<P, S>
 where
-    P: PasswordAuthInfoStore,
+    P: PasswordStore,
     S: SessionStore<UserId = P::UserId>,
 {
     /// Initialize with the application's password authentication store and
     /// session store, and the defaults.
-    pub fn new(password_auth_info_store: P, session_store: S) -> Auth<P, S> {
-        Auth::builder(password_auth_info_store, session_store).build()
+    pub fn new(password_store: P, session_store: S) -> Auth<P, S> {
+        Auth::builder(password_store, session_store).build()
     }
 
     /// A builder of an `Auth` with the application's password authentication
     /// store and session store, to change the defaults with.
-    pub fn builder(password_auth_info_store: P, session_store: S) -> AuthBuilder<P, S> {
-        AuthBuilder::new(password_auth_info_store, session_store)
+    pub fn builder(password_store: P, session_store: S) -> AuthBuilder<P, S> {
+        AuthBuilder::new(password_store, session_store)
     }
 }
 
 impl<P, S, V> Auth<P, S, V>
 where
-    P: PasswordAuthInfoStore,
+    P: PasswordStore,
     S: SessionStore<UserId = P::UserId>,
     V: PasswordPolicy,
 {
     /// Initialize with the stores and settings, as `AuthBuilder` builds it.
     pub(crate) fn with_settings(
-        password_auth_info_store: P,
+        password_store: P,
         session_store: S,
         session_lifetime: SignedDuration,
         maximum_concurrent_verifications: usize,
         password_policy: V,
     ) -> Auth<P, S, V> {
         Auth {
-            password_auth_info_store,
+            password_store,
             session_store,
             session_lifetime,
             password_policy,
@@ -90,7 +90,7 @@ where
     ) -> Result<P::UserId, AuthError<V::Error>> {
         self.check_password(&credentials.password)?;
         let password_hash = self.hash(&credentials.password).await?;
-        self.password_auth_info_store
+        self.password_store
             .create_user_with_password_hash(&credentials.username, password_hash)
             .await?
             .ok_or(AuthError::UsernameTaken)
@@ -104,15 +104,12 @@ where
         credentials: &Credentials,
     ) -> Result<(), AuthError<V::Error>> {
         self.check_password(&credentials.password)?;
-        let Some(password_auth_info) = self
-            .password_auth_info_store
-            .get_password_auth_info(&credentials.username)
-            .await?
+        let Some(password_auth_info) = self.password_store.get_user(&credentials.username).await?
         else {
             return Err(AuthError::UnknownUsername);
         };
         let password_hash = self.hash(&credentials.password).await?;
-        self.password_auth_info_store
+        self.password_store
             .set_password_hash(&credentials.username, password_hash)
             .await?;
         // Only after the password changed, so a session can't start with the
@@ -131,10 +128,7 @@ where
         credentials: &Credentials,
         now: Timestamp,
     ) -> Result<Option<Session>, AuthError<V::Error>> {
-        let Some(password_auth_info) = self
-            .password_auth_info_store
-            .get_password_auth_info(&credentials.username)
-            .await?
+        let Some(password_auth_info) = self.password_store.get_user(&credentials.username).await?
         else {
             // even if we can't find the user we verify a dummy password so
             // this cannot be used to probe quickly which usernames exist.
@@ -253,7 +247,7 @@ mod tests {
     use thiserror::Error;
 
     use crate::auth_builder::DEFAULT_SESSION_LIFETIME;
-    use crate::memory_store::{MemoryPasswordAuthInfoStore, MemorySessionStore, MemoryUserId};
+    use crate::memory_store::{MemoryPasswordStore, MemorySessionStore, MemoryUserId};
     use crate::password_policy::PasswordTooShort;
 
     use super::*;
@@ -262,9 +256,9 @@ mod tests {
     const PASSWORD: &str = "correct horse";
     const NEW_PASSWORD: &str = "battery staple";
 
-    fn auth() -> Auth<MemoryPasswordAuthInfoStore, MemorySessionStore> {
+    fn auth() -> Auth<MemoryPasswordStore, MemorySessionStore> {
         Auth::new(
-            MemoryPasswordAuthInfoStore::default(),
+            MemoryPasswordStore::default(),
             MemorySessionStore::default(),
         )
     }
@@ -291,8 +285,8 @@ mod tests {
         let memory_user_id = auth.create_user(&credentials(PASSWORD)).await.unwrap();
 
         let password_auth_info = auth
-            .password_auth_info_store
-            .get_password_auth_info(USERNAME)
+            .password_store
+            .get_user(USERNAME)
             .await
             .unwrap()
             .unwrap();
@@ -324,8 +318,8 @@ mod tests {
             AuthError::InvalidPassword(PasswordTooShort { minimum: 8 })
         ));
         assert!(
-            auth.password_auth_info_store
-                .get_password_auth_info(USERNAME)
+            auth.password_store
+                .get_user(USERNAME)
                 .await
                 .unwrap()
                 .is_none()
@@ -342,8 +336,8 @@ mod tests {
             .unwrap();
 
         let password_auth_info = auth
-            .password_auth_info_store
-            .get_password_auth_info(USERNAME)
+            .password_store
+            .get_user(USERNAME)
             .await
             .unwrap()
             .unwrap();
@@ -398,8 +392,8 @@ mod tests {
             AuthError::InvalidPassword(PasswordTooShort { minimum: 8 })
         ));
         let password_auth_info = auth
-            .password_auth_info_store
-            .get_password_auth_info(USERNAME)
+            .password_store
+            .get_user(USERNAME)
             .await
             .unwrap()
             .unwrap();
@@ -557,7 +551,7 @@ mod tests {
     async fn session_lasts_configured_lifetime() {
         let session_lifetime = SignedDuration::from_hours(1);
         let auth = Auth::builder(
-            MemoryPasswordAuthInfoStore::default(),
+            MemoryPasswordStore::default(),
             MemorySessionStore::default(),
         )
         .session_lifetime(session_lifetime)
@@ -576,7 +570,7 @@ mod tests {
     #[tokio::test]
     async fn refuses_password_by_configured_policy() {
         let auth = Auth::builder(
-            MemoryPasswordAuthInfoStore::default(),
+            MemoryPasswordStore::default(),
             MemorySessionStore::default(),
         )
         .password_policy(NoHorses)
@@ -610,7 +604,7 @@ mod tests {
     }
 
     async fn create_user(
-        auth: &Auth<MemoryPasswordAuthInfoStore, MemorySessionStore>,
+        auth: &Auth<MemoryPasswordStore, MemorySessionStore>,
         credentials: &Credentials,
     ) -> MemoryUserId {
         auth.create_user(credentials).await.unwrap()
@@ -618,7 +612,7 @@ mod tests {
 
     /// The token of a new session, logged in `now`.
     async fn log_in(
-        auth: &Auth<MemoryPasswordAuthInfoStore, MemorySessionStore>,
+        auth: &Auth<MemoryPasswordStore, MemorySessionStore>,
         credentials: &Credentials,
     ) -> SessionToken {
         auth.log_in(credentials, now())
