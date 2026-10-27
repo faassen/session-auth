@@ -2,8 +2,12 @@
 name = "session-auth"
 version = "0.1.0"
 edition = "2024"
+description = "Session-based authentication for web applications, with optional axum and clap integration."
 license = "MIT OR Apache-2.0"
-publish = false
+repository = "https://github.com/faassen/session-auth"
+
+[workspace]
+members = ["xtask"]
 
 [dependencies]
 anyhow = { version = "1.0.104", optional = true }

@@ -40,7 +40,7 @@ where
         }
     }
 
-    /// Log in with credentials, creating a new session. 
+    /// Log in with credentials, creating a new session.
     ///
     /// Return the cookie jar in your own axum handler so the session cookie is added.
     /// Returns `None` if the credentials are wrong.
@@ -56,8 +56,8 @@ where
         }
     }
 
-    /// End the session of the request's session cookie, if any. 
-    /// 
+    /// End the session of the request's session cookie, if any.
+    ///
     /// Return the cookie jar in your own axum handler so the session cookie is
     /// removed.
     pub async fn log_out(self) -> Result<CookieJar, AuthError<V::Error>> {
