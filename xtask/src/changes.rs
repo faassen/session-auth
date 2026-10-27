@@ -20,6 +20,13 @@ impl Changes {
         &self.text
     }
 
+    /// Whether any version has been released.
+    pub fn has_releases(&self) -> bool {
+        self.text
+            .lines()
+            .any(|line| line.starts_with(SECTION_PREFIX) && line.trim_end() != UNRELEASED)
+    }
+
     /// Turn the `## Unreleased` heading into the heading of the release of the
     /// version on the date.
     pub fn release(&self, version: &Version, date: Date) -> Result<Changes> {
@@ -69,6 +76,15 @@ mod tests {
         assert_eq!(
             released.text(),
             "# Changes\n\n## 0.2.0 (2026-10-27)\n\n- New thing.\n\n## 0.1.0 (2026-01-01)\n\n- Initial release.\n"
+        );
+    }
+
+    #[test]
+    fn has_releases() {
+        assert!(Changes::new(CHANGES.to_string()).has_releases());
+        assert!(
+            !Changes::new("# Changes\n\n## Unreleased\n\n- Initial release.\n".to_string())
+                .has_releases()
         );
     }
 

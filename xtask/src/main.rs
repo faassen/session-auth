@@ -1,4 +1,5 @@
 mod changes;
+mod level;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,6 +12,7 @@ use semver::Version;
 use toml_edit::{DocumentMut, value};
 
 use changes::Changes;
+use level::Level;
 
 const PACKAGE: &str = "session-auth";
 const BOOKMARK: &str = "main";
@@ -25,11 +27,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum XtaskCommand {
-    /// Release the version: bump Cargo.toml, stamp CHANGES.md, publish to
+    /// Release the next version: bump Cargo.toml, stamp CHANGES.md, publish to
     /// crates.io, commit and tag with jj, and push to GitHub.
     Release {
-        /// The version to release, such as 0.2.0.
-        version: Version,
+        /// The level of the release. Leave it out for the first release, to
+        /// release the current version.
+        level: Option<Level>,
     },
 }
 
@@ -41,7 +44,7 @@ fn main() -> Result<()> {
         .to_path_buf();
     let workspace = Workspace { root };
     match cli.command {
-        XtaskCommand::Release { version } => workspace.release(&version),
+        XtaskCommand::Release { level } => workspace.release(level),
     }
 }
 
@@ -50,7 +53,7 @@ struct Workspace {
 }
 
 impl Workspace {
-    fn release(&self, version: &Version) -> Result<()> {
+    fn release(&self, level: Option<Level>) -> Result<()> {
         if !self
             .output("jj", &["diff", "--name-only"])?
             .trim()
@@ -65,13 +68,18 @@ impl Workspace {
             .as_str()
             .context("Cargo.toml has no package version")?
             .parse::<Version>()?;
-        // The same version is allowed for the first release.
-        if version < &current {
-            bail!("version {version} is lower than the current version {current}");
-        }
 
         let changes_path = self.root.join(CHANGES_MD);
         let changes = Changes::new(fs::read_to_string(&changes_path)?);
+        let version = if let Some(level) = level {
+            level.bump(&current)
+        } else {
+            if changes.has_releases() {
+                bail!("give the level of the release: major, minor or patch");
+            }
+            current
+        };
+        let version = &version;
         let released = changes.release(version, Zoned::now().date())?;
 
         cargo_toml["package"]["version"] = value(version.to_string());
