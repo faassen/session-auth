@@ -1,13 +1,8 @@
 # Releasing
 
-Make sure the changes of the release are listed in `CHANGES.md` under the
-`## Unreleased` heading, then run:
+With [cargo-jj-release](https://crates.io/crates/cargo-jj-release) installed,
+list the changes under `## Unreleased` in `CHANGES.md`, commit, and run:
 
 ```
-cargo xtask release <level>
+cargo jj-release <major|minor|patch>
 ```
-
-where `<level>` is `major`, `minor` or `patch`.
-
-For the first release, leave out the level to release the version that is
-already in `Cargo.toml`.

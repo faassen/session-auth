@@ -6,9 +6,6 @@ description = "Session-based authentication for web applications, with optional 
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/faassen/session-auth"
 
-[workspace]
-members = ["xtask"]
-
 [dependencies]
 anyhow = { version = "1.0.104", optional = true }
 axum = { version = "0.8.9", default-features = false, optional = true }
