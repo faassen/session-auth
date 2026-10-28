@@ -1,5 +1,7 @@
 # Changes
 
+## Unreleased
+
 ## 0.2.0 (2026-10-28)
 
 We want to support applications creating an `Auth` per request for scenarios
