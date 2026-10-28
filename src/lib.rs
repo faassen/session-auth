@@ -1,13 +1,15 @@
 //! [`PasswordStore`]: crate::PasswordStore
 //! [`SessionStore`]: crate::SessionStore
 //! [`Auth`]: crate::Auth
+//! [`AuthSettings`]: crate::AuthSettings
 #![cfg_attr(feature = "cookie", doc = "[`cookie`]: crate::cookie")]
 #![cfg_attr(feature = "axum", doc = "[`axum`]: crate::axum")]
 #![cfg_attr(feature = "cli", doc = "[`cli`]: crate::cli")]
 #![doc = include_str!("../README.md")]
 
 mod auth;
-mod auth_builder;
+mod auth_settings;
+mod auth_settings_builder;
 #[cfg(feature = "axum")]
 pub mod axum;
 #[cfg(feature = "cli")]
@@ -24,7 +26,8 @@ mod session_store;
 mod session_token;
 
 pub use auth::{Auth, Session};
-pub use auth_builder::AuthBuilder;
+pub use auth_settings::AuthSettings;
+pub use auth_settings_builder::AuthSettingsBuilder;
 pub use credentials::Credentials;
 pub use error::{AuthError, BoxError, StoreError};
 pub use password_store::{PasswordStore, PasswordUser};

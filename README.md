@@ -7,9 +7,9 @@ together in a convenient bundle.
 In your application, you need to implement [`PasswordStore`] and
 [`SessionStore`] on top of whatever database it is using.
 
-After that, you can create an [`Auth`] instance for it, and you use the API in
-your application on it to create users, log in to get a session, and identify
-users by session.
+After that, you can create an [`Auth`] instance with your stores and the
+[`AuthSettings`], and you use the API in your application on it to create
+users, log in to get a session, and identify users by session.
 
 The enabled by default `cookie` feature helps you manage your session cookies.
 See [`cookie`] for more.
@@ -23,6 +23,7 @@ password and change user functionality. See [`cli`] for more information.
 [`PasswordStore`]: https://docs.rs/session-auth/latest/session_auth/trait.PasswordStore.html
 [`SessionStore`]: https://docs.rs/session-auth/latest/session_auth/trait.SessionStore.html
 [`Auth`]: https://docs.rs/session-auth/latest/session_auth/struct.Auth.html
+[`AuthSettings`]: https://docs.rs/session-auth/latest/session_auth/struct.AuthSettings.html
 [`cookie`]: https://docs.rs/session-auth/latest/session_auth/cookie/index.html
 [`axum`]: https://docs.rs/session-auth/latest/session_auth/axum/index.html
 [`cli`]: https://docs.rs/session-auth/latest/session_auth/cli/index.html

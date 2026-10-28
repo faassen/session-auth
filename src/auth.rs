@@ -1,11 +1,9 @@
 use std::sync::{Arc, LazyLock};
 
-use jiff::{SignedDuration, Timestamp};
-use password_auth::{generate_hash, verify_password};
-use tokio::sync::Semaphore;
-use tokio::task::spawn_blocking;
+use jiff::Timestamp;
+use password_auth::generate_hash;
 
-use crate::auth_builder::AuthBuilder;
+use crate::auth_settings::AuthSettings;
 #[cfg(feature = "cookie")]
 use crate::cookie::SessionCookie;
 use crate::credentials::Credentials;
@@ -35,31 +33,9 @@ pub struct Session {
 /// care of the authentication details, the application handles storage and UI.
 #[derive(Clone)]
 pub struct Auth<P, S, V = MinimumLengthPasswordValidator> {
+    auth_settings: Arc<AuthSettings<V>>,
     password_store: P,
     session_store: S,
-    session_lifetime: SignedDuration,
-    password_validator: V,
-    semaphore: Arc<Semaphore>,
-    #[cfg(feature = "cookie")]
-    session_cookie: SessionCookie,
-}
-
-impl<P, S> Auth<P, S>
-where
-    P: PasswordStore,
-    S: SessionStore<UserId = P::UserId>,
-{
-    /// Initialize with the application's password authentication store and
-    /// session store, and the defaults.
-    pub fn new(password_store: P, session_store: S) -> Auth<P, S> {
-        Auth::builder(password_store, session_store).build()
-    }
-
-    /// A builder of an `Auth` with the application's password authentication
-    /// store and session store, to change the defaults with.
-    pub fn builder(password_store: P, session_store: S) -> AuthBuilder<P, S> {
-        AuthBuilder::new(password_store, session_store)
-    }
 }
 
 impl<P, S, V> Auth<P, S, V>
@@ -68,25 +44,24 @@ where
     S: SessionStore<UserId = P::UserId>,
     V: PasswordValidator,
 {
-    /// Initialize with the stores and settings of the builder.
-    pub(crate) fn from_builder(auth_builder: AuthBuilder<P, S, V>) -> Auth<P, S, V> {
+    /// Initialize with the application's settings, password authentication
+    /// store and session store.
+    pub fn new(
+        auth_settings: Arc<AuthSettings<V>>,
+        password_store: P,
+        session_store: S,
+    ) -> Auth<P, S, V> {
         Auth {
-            password_store: auth_builder.password_store,
-            session_store: auth_builder.session_store,
-            session_lifetime: auth_builder.session_lifetime,
-            password_validator: auth_builder.password_validator,
-            semaphore: Arc::new(Semaphore::new(
-                auth_builder.maximum_concurrent_verifications,
-            )),
-            #[cfg(feature = "cookie")]
-            session_cookie: auth_builder.session_cookie,
+            auth_settings,
+            password_store,
+            session_store,
         }
     }
 
     /// The cookie that holds the session token.
     #[cfg(feature = "cookie")]
     pub fn session_cookie(&self) -> SessionCookie {
-        self.session_cookie
+        self.auth_settings.session_cookie
     }
 
     /// Create a user who logs in with the credentials, giving back their user
@@ -96,8 +71,9 @@ where
         &self,
         credentials: &Credentials,
     ) -> Result<P::UserId, AuthError<V::Error>> {
-        self.validate_password(&credentials.password)?;
-        let password_hash = self.hash(&credentials.password).await?;
+        self.auth_settings
+            .validate_password(&credentials.password)?;
+        let password_hash = self.auth_settings.hash(&credentials.password).await?;
         self.password_store
             .create_user_with_password_hash(&credentials.username, password_hash)
             .await?
@@ -111,12 +87,13 @@ where
         &self,
         credentials: &Credentials,
     ) -> Result<(), AuthError<V::Error>> {
-        self.validate_password(&credentials.password)?;
+        self.auth_settings
+            .validate_password(&credentials.password)?;
         let Some(password_auth_info) = self.password_store.get_user(&credentials.username).await?
         else {
             return Err(AuthError::UnknownUsername);
         };
-        let password_hash = self.hash(&credentials.password).await?;
+        let password_hash = self.auth_settings.hash(&credentials.password).await?;
         self.password_store
             .set_password_hash(&credentials.username, password_hash)
             .await?;
@@ -140,11 +117,13 @@ where
         else {
             // even if we can't find the user we verify a dummy password so
             // this cannot be used to probe quickly which usernames exist.
-            self.verify(DUMMY_PASSWORD_HASH.clone(), &credentials.password)
+            self.auth_settings
+                .verify(DUMMY_PASSWORD_HASH.clone(), &credentials.password)
                 .await?;
             return Ok(None);
         };
         if !self
+            .auth_settings
             .verify(password_auth_info.password_hash, &credentials.password)
             .await?
         {
@@ -153,7 +132,7 @@ where
         // clean up any expired sessions
         self.session_store.remove_expired_sessions(now).await?;
         let session_token = SessionToken::generate()?;
-        let expires_at = now + self.session_lifetime;
+        let expires_at = now + self.auth_settings.session_lifetime;
         self.session_store
             .set_session(
                 &session_token.token_hash(),
@@ -197,64 +176,15 @@ where
             .await?;
         Ok(())
     }
-
-    /// Fails if the password validator doesn't accept the password.
-    fn validate_password(&self, password: &str) -> Result<(), AuthError<V::Error>> {
-        self.password_validator
-            .validate(password)
-            .map_err(AuthError::InvalidPassword)
-    }
-
-    /// The password's hash.
-    async fn hash(&self, password: &str) -> Result<String, AuthError<V::Error>> {
-        let password = password.to_string();
-        self.run_password_task(move || generate_hash(password))
-            .await
-    }
-
-    /// Whether the password has the hash.
-    async fn verify(
-        &self,
-        password_hash: String,
-        password: &str,
-    ) -> Result<bool, AuthError<V::Error>> {
-        let password = password.to_string();
-        self.run_password_task(move || verify_password(password, &password_hash).is_ok())
-            .await
-    }
-
-    /// Run hashing or verifying a password on a thread for blocking work, as
-    /// it's slow on purpose. It uses the semaphore to restrict how many can
-    /// happen at one time to avoid denial of service via logging in.
-    async fn run_password_task<T: Send + 'static>(
-        &self,
-        password_task: impl FnOnce() -> T + Send + 'static,
-    ) -> Result<T, AuthError<V::Error>> {
-        // Here we try to acquire a permit, and wait if the maximum has been
-        // handed out already.
-        // The permit goes along into the spawned thread, so it's only given
-        // back once the task is done, even if the caller is dropped before.
-        let semaphore_permit = self
-            .semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("the semaphore is never closed");
-        Ok(spawn_blocking(move || {
-            let output = password_task();
-            drop(semaphore_permit);
-            output
-        })
-        .await?)
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use jiff::SignedDuration;
     use password_auth::verify_password;
     use thiserror::Error;
 
-    use crate::auth_builder::DEFAULT_SESSION_LIFETIME;
+    use crate::auth_settings_builder::DEFAULT_SESSION_LIFETIME;
     use crate::memory_store::{MemoryPasswordStore, MemorySessionStore, MemoryUserId};
     use crate::password_validator::PasswordTooShort;
 
@@ -265,7 +195,15 @@ mod tests {
     const NEW_PASSWORD: &str = "battery staple";
 
     fn auth() -> Auth<MemoryPasswordStore, MemorySessionStore> {
+        memory_auth(AuthSettings::default())
+    }
+
+    /// An auth with the settings and empty memory stores.
+    fn memory_auth<V: PasswordValidator>(
+        auth_settings: AuthSettings<V>,
+    ) -> Auth<MemoryPasswordStore, MemorySessionStore, V> {
         Auth::new(
+            Arc::new(auth_settings),
             MemoryPasswordStore::default(),
             MemorySessionStore::default(),
         )
@@ -558,12 +496,11 @@ mod tests {
     #[tokio::test]
     async fn session_lasts_configured_lifetime() {
         let session_lifetime = SignedDuration::from_hours(1);
-        let auth = Auth::builder(
-            MemoryPasswordStore::default(),
-            MemorySessionStore::default(),
-        )
-        .session_lifetime(session_lifetime)
-        .build();
+        let auth = memory_auth(
+            AuthSettings::builder()
+                .session_lifetime(session_lifetime)
+                .build(),
+        );
         create_user(&auth, &credentials(PASSWORD)).await;
 
         let session = auth
@@ -577,12 +514,7 @@ mod tests {
 
     #[tokio::test]
     async fn refuses_password_by_configured_validator() {
-        let auth = Auth::builder(
-            MemoryPasswordStore::default(),
-            MemorySessionStore::default(),
-        )
-        .password_validator(NoHorses)
-        .build();
+        let auth = memory_auth(AuthSettings::builder().password_validator(NoHorses).build());
 
         let auth_error = auth.create_user(&credentials(PASSWORD)).await.unwrap_err();
 

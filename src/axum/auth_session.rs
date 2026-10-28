@@ -105,6 +105,7 @@ mod tests {
     use cookie::time::Duration;
     use tower::ServiceExt;
 
+    use crate::auth_settings::AuthSettings;
     use crate::memory_store::{MemoryPasswordStore, MemorySessionStore, MemoryUserId};
 
     use super::*;
@@ -130,7 +131,13 @@ mod tests {
     }
 
     fn memory_auth() -> MemoryAuth {
+        memory_auth_with(AuthSettings::default())
+    }
+
+    /// An auth with the settings and empty memory stores.
+    fn memory_auth_with(auth_settings: AuthSettings) -> MemoryAuth {
         Auth::new(
+            Arc::new(auth_settings),
             MemoryPasswordStore::default(),
             MemorySessionStore::default(),
         )
@@ -214,12 +221,11 @@ mod tests {
 
     #[tokio::test]
     async fn user_id_by_configured_cookie_name() {
-        let auth = Auth::builder(
-            MemoryPasswordStore::default(),
-            MemorySessionStore::default(),
-        )
-        .cookie_name("dentext_session")
-        .build();
+        let auth = memory_auth_with(
+            AuthSettings::builder()
+                .cookie_name("dentext_session")
+                .build(),
+        );
         let (auth, memory_user_id, session_token) = logged_in_auth(auth).await;
 
         let default_cookie_header = format!("session={}", session_token.as_str());
