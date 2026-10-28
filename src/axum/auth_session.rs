@@ -1,7 +1,6 @@
-use std::convert::Infallible;
 use std::sync::Arc;
 
-use axum::extract::{FromRef, FromRequestParts};
+use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum_extra::extract::cookie::CookieJar;
 use jiff::Timestamp;
@@ -16,9 +15,14 @@ use crate::session_token::SessionToken;
 
 /// The session of a request.
 ///
-/// `A` is the application's [`Auth`]. The extractor gets it from the router's
-/// state as an `Arc<A>`, so the state has to give one by [`FromRef`]. You can do this
-/// by deriving `FromRef` on a state with an `Arc<A>` field.
+/// `A` is the application's [`Auth`]. The extractor gets it as an `Arc<A>` by
+/// `Arc<A>`'s own [`FromRequestParts`], which the application implements. A
+/// common pattern is to have your application get the `Auth` from the app
+/// state, but you can also construct the `Auth` on the fly combining connection
+/// information in the request with [`AuthSettings`] stored in your
+/// application's state.
+///
+/// [`AuthSettings`]: crate::AuthSettings
 pub struct AuthSession<A> {
     auth: Arc<A>,
     cookie_jar: CookieJar,
@@ -79,15 +83,15 @@ where
 
 impl<A, S> FromRequestParts<S> for AuthSession<A>
 where
-    Arc<A>: FromRef<S>,
+    Arc<A>: FromRequestParts<S>,
     A: Send + Sync,
     S: Send + Sync,
 {
-    type Rejection = Infallible;
+    type Rejection = <Arc<A> as FromRequestParts<S>>::Rejection;
 
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Infallible> {
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         Ok(AuthSession {
-            auth: Arc::from_ref(state),
+            auth: Arc::<A>::from_request_parts(parts, state).await?,
             cookie_jar: CookieJar::from_headers(&parts.headers),
         })
     }
@@ -95,6 +99,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::convert::Infallible;
+
     use axum::Router;
     use axum::body::{Body, to_bytes};
     use axum::extract::Request;
@@ -111,6 +117,23 @@ mod tests {
     use super::*;
 
     type MemoryAuth = Auth<MemoryPasswordStore, MemorySessionStore>;
+
+    /// The router's state, which holds the auth.
+    #[derive(Clone)]
+    struct MemoryState {
+        auth: Arc<MemoryAuth>,
+    }
+
+    impl FromRequestParts<MemoryState> for Arc<MemoryAuth> {
+        type Rejection = Infallible;
+
+        async fn from_request_parts(
+            _parts: &mut Parts,
+            memory_state: &MemoryState,
+        ) -> Result<Arc<MemoryAuth>, Infallible> {
+            Ok(memory_state.auth.clone())
+        }
+    }
 
     fn credentials() -> Credentials {
         Credentials {
@@ -165,7 +188,7 @@ mod tests {
                     auth_session.log_out().await.unwrap()
                 }),
             )
-            .with_state(auth)
+            .with_state(MemoryState { auth })
     }
 
     fn request(method: Method, path: &str, cookie_header: Option<&str>) -> Request {
