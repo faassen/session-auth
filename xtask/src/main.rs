@@ -87,8 +87,9 @@ impl Workspace {
         fs::write(&changes_path, released.text())?;
         self.run("cargo", &["update", "--workspace"])?;
 
-        // Verify the package before anything is committed.
-        self.run(
+        // Verify the package before anything is committed. The working copy
+        // was clean, so restoring it undoes only the release's own changes.
+        if let Err(error) = self.run(
             "cargo",
             &[
                 "publish",
@@ -97,8 +98,10 @@ impl Workspace {
                 "--dry-run",
                 "--allow-dirty",
             ],
-        )
-        .context("the dry run failed; run `jj restore` to undo the version bump")?;
+        ) {
+            self.run("jj", &["restore"])?;
+            return Err(error.context("the dry run failed; the version bump was undone"));
+        }
 
         let tag = format!("v{version}");
         self.run(
