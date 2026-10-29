@@ -1,6 +1,6 @@
 # Changes
 
-## Unreleased
+## 0.3.0 (2026-10-29)
 
 - Feature: if we want to ask for the password in the UI even though you're
   already logged in, such as in a password change UI, we need to be able to
