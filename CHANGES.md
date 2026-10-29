@@ -17,6 +17,11 @@
   like `Auth::create_user`, so a handler that adds users only needs the
   `AuthSession`.
 
+- Feature: An application that stops a user from logging in, such as by
+  retiring them, also needs to end the sessions they still have. There is now
+  an `Auth::end_sessions` to do that, and `AuthSession::end_sessions` on the
+  Axum integration for convenience.
+
 ## 0.2.0 (2026-10-28)
 
 We want to support applications creating an `Auth` per request for scenarios

@@ -105,6 +105,13 @@ where
         Ok(())
     }
 
+    /// End all sessions of the user with the id, such as when they may no
+    /// longer log in.
+    pub async fn end_sessions(&self, user_id: &P::UserId) -> Result<(), AuthError<V::Error>> {
+        self.session_store.remove_user_sessions(user_id).await?;
+        Ok(())
+    }
+
     /// The user id of the user with the credentials, or `None` if there's
     /// none. Verifying is slow on purpose, and there is a semaphore in place
     /// to avoid verifying too many simultaneously.
@@ -315,6 +322,23 @@ mod tests {
         auth.change_password(&credentials(NEW_PASSWORD))
             .await
             .unwrap();
+
+        assert_eq!(auth.identify(&session_token, now()).await.unwrap(), None);
+        assert_eq!(
+            auth.identify(&other_session_token, now()).await.unwrap(),
+            Some(other_memory_user_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn ends_only_the_users_sessions() {
+        let auth = auth();
+        let memory_user_id = create_user(&auth, &credentials(PASSWORD)).await;
+        let other_memory_user_id = create_user(&auth, &other_credentials()).await;
+        let session_token = log_in(&auth, &credentials(PASSWORD)).await;
+        let other_session_token = log_in(&auth, &other_credentials()).await;
+
+        auth.end_sessions(&memory_user_id).await.unwrap();
 
         assert_eq!(auth.identify(&session_token, now()).await.unwrap(), None);
         assert_eq!(

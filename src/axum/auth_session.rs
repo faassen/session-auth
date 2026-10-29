@@ -62,6 +62,14 @@ where
         self.auth.create_user(credentials).await
     }
 
+    /// End all sessions of the user with the id, like [`Auth::end_sessions`].
+    ///
+    /// If one of them is the request's, its cookie stays, but no longer
+    /// identifies a user.
+    pub async fn end_sessions(&self, user_id: &P::UserId) -> Result<(), AuthError<V::Error>> {
+        self.auth.end_sessions(user_id).await
+    }
+
     /// Log in with credentials, creating a new session.
     ///
     /// Return the cookie jar in your own axum handler so the session cookie is added.

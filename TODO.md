@@ -1,1 +1,2 @@
-- an `Auth` API that ends sessions on Auth.
+# TODO
+
