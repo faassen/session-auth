@@ -6,12 +6,16 @@
   already logged in, such as in a password change UI, we need to be able to
   check credentials without actually logging in. There is now an `Auth::verify`
   to do that. We've also exposed this as `AuthSession::verify` on the Axum
-  integration.
+  integration for convenience.
 
 - Feature (Axum integration): There is now an `AuthSession::change_password` API
   for changing a user's password. This not only changes the password but also
   remove the user's session cookie if they're changing their own password,
   logging them out straight away.
+
+- Feature (Axum integration): A convenience `AuthSession::create_user` API,
+  like `Auth::create_user`, so a handler that adds users only needs the
+  `AuthSession`.
 
 ## 0.2.0 (2026-10-28)
 
