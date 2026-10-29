@@ -44,6 +44,16 @@ where
         }
     }
 
+    /// The user id of the user with the credentials, or `None` if there's
+    /// none, like [`Auth::verify`]. Starts no session, so it doesn't touch
+    /// the cookie.
+    pub async fn verify(
+        &self,
+        credentials: &Credentials,
+    ) -> Result<Option<P::UserId>, AuthError<V::Error>> {
+        self.auth.verify(credentials).await
+    }
+
     /// Log in with credentials, creating a new session.
     ///
     /// Return the cookie jar in your own axum handler so the session cookie is added.
@@ -417,5 +427,20 @@ mod tests {
                 .unwrap(),
             Some(memory_user_id)
         );
+    }
+
+    #[tokio::test]
+    async fn verifies_credentials() {
+        let (auth, memory_user_id, _) = logged_in_auth(memory_auth()).await;
+        let auth_session = AuthSession {
+            auth,
+            cookie_jar: CookieJar::new(),
+        };
+
+        assert_eq!(
+            auth_session.verify(&credentials()).await.unwrap(),
+            Some(memory_user_id)
+        );
+        assert_eq!(auth_session.verify(&new_credentials()).await.unwrap(), None);
     }
 }

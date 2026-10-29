@@ -5,7 +5,8 @@
 - Feature: if we want to ask for the password in the UI even though you're
   already logged in, such as in a password change UI, we need to be able to
   check credentials without actually logging in. There is now an `Auth::verify`
-  to do that.
+  to do that. We've also exposed this as `AuthSession::verify` on the Axum
+  integration.
 
 - Feature (Axum integration): There is now an `AuthSession::change_password` API
   for changing a user's password. This not only changes the password but also
