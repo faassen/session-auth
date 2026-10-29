@@ -1,6 +1,6 @@
 //! [`AuthSession`] provides an API for Axum-based applications to log in and
 //! out, and identifying the user of a request. Requires the `axum` feature.
-//! 
+//!
 //! You obtain [`AuthSession`] with an extractor in your handlers:
 //!
 //! ```ignore
@@ -17,15 +17,15 @@
 //!     Ok((cookie_jar, Redirect::to("/")).into_response())
 //! }
 //! ```
-//! 
+//!
 //! In order for this to work, your application must implement some glue so you
 //! can obtain the [`Auth`] object wired for your application, which we'll name
-//! `AppAuth` here. 
+//! `AppAuth` here.
 //!
 //! ```ignore
 //! type AppAuth = Auth<AppPasswordStore, AppSessionStore>;
 //! ```
-//! 
+//!
 //! If you have it stored in the app state like this (using an `Arc` so it's
 //! fast to clone):
 //!
@@ -35,7 +35,7 @@
 //!     auth: Arc<AppAuth>,
 //! }
 //! ```
-//! 
+//!
 //! Then you can wire it into your application using the following extractor:
 //!  
 //! ```ignore

@@ -72,6 +72,24 @@ where
         Ok(self.cookie_jar.remove(removal_cookie))
     }
 
+    /// Change the password of the user with a new one.
+    ///
+    /// This ends the user's session's session if this was the logged in user.
+    pub async fn change_password(
+        self,
+        credentials: &Credentials,
+    ) -> Result<CookieJar, AuthError<V::Error>> {
+        self.auth.change_password(credentials).await?;
+        // if we still have a session token but we can't actually find a session for this user,
+        // we know we have to clean up the cookie.
+        let session_ended = self.session_token().is_some() && self.user_id().await?.is_none();
+        let mut cookie_jar = self.cookie_jar;
+        if session_ended {
+            cookie_jar = cookie_jar.remove(self.auth.session_cookie().removal_cookie());
+        }
+        Ok(cookie_jar)
+    }
+
     /// The session token in the request's session cookie, if there's one
     /// that can be a token.
     fn session_token(&self) -> Option<SessionToken> {
@@ -142,6 +160,22 @@ mod tests {
         }
     }
 
+    /// The credentials of another user than `credentials`'.
+    fn other_credentials() -> Credentials {
+        Credentials {
+            username: "piet".to_string(),
+            password: "correct horse".to_string(),
+        }
+    }
+
+    /// `credentials`, with a new password.
+    fn new_credentials() -> Credentials {
+        Credentials {
+            username: "jan".to_string(),
+            password: "battery staple".to_string(),
+        }
+    }
+
     /// The auth, with a user, the user's id, and the token of their session.
     async fn logged_in_auth(auth: MemoryAuth) -> (Arc<MemoryAuth>, MemoryUserId, SessionToken) {
         let memory_user_id = auth.create_user(&credentials()).await.unwrap();
@@ -166,8 +200,10 @@ mod tests {
         )
     }
 
-    /// A router that answers with the user id of the session at `/`, and
-    /// logs in with `credentials` at `/log-in` and out at `/log-out`.
+    /// A router that answers with the user id of the session at `/`, logs in
+    /// with `credentials` at `/log-in` and out at `/log-out`, and changes the
+    /// password to `new_credentials`' at `/change-password` and of
+    /// `other_credentials`' user at `/change-other-password`.
     fn router(auth: Arc<MemoryAuth>) -> Router {
         Router::new()
             .route(
@@ -186,6 +222,24 @@ mod tests {
                 "/log-out",
                 post(|auth_session: AuthSession<MemoryAuth>| async move {
                     auth_session.log_out().await.unwrap()
+                }),
+            )
+            .route(
+                "/change-password",
+                post(|auth_session: AuthSession<MemoryAuth>| async move {
+                    auth_session
+                        .change_password(&new_credentials())
+                        .await
+                        .unwrap()
+                }),
+            )
+            .route(
+                "/change-other-password",
+                post(|auth_session: AuthSession<MemoryAuth>| async move {
+                    auth_session
+                        .change_password(&other_credentials())
+                        .await
+                        .unwrap()
                 }),
             )
             .with_state(MemoryState { auth })
@@ -314,5 +368,54 @@ mod tests {
             .unwrap();
 
         assert!(response.headers().get(SET_COOKIE).is_none());
+    }
+
+    #[tokio::test]
+    async fn change_password_ends_session_and_removes_cookie() {
+        let (auth, _, session_token) = logged_in_auth(memory_auth()).await;
+        let cookie_header = format!("session={}", session_token.as_str());
+
+        let cookie = set_cookie(
+            auth.clone(),
+            request(Method::POST, "/change-password", Some(&cookie_header)),
+        )
+        .await;
+
+        assert_eq!(cookie.name(), "session");
+        assert_eq!(cookie.value(), "");
+        assert_eq!(cookie.max_age(), Some(Duration::ZERO));
+        assert_eq!(
+            auth.identify(&session_token, Timestamp::now())
+                .await
+                .unwrap(),
+            None
+        );
+        assert!(auth.verify(&new_credentials()).await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn change_password_of_other_user_keeps_session_and_cookie() {
+        let auth = memory_auth();
+        auth.create_user(&other_credentials()).await.unwrap();
+        let (auth, memory_user_id, session_token) = logged_in_auth(auth).await;
+        let cookie_header = format!("session={}", session_token.as_str());
+
+        let response = router(auth.clone())
+            .oneshot(request(
+                Method::POST,
+                "/change-other-password",
+                Some(&cookie_header),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response.headers().get(SET_COOKIE).is_none());
+        assert_eq!(
+            auth.identify(&session_token, Timestamp::now())
+                .await
+                .unwrap(),
+            Some(memory_user_id)
+        );
     }
 }
