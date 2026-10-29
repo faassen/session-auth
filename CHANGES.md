@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Feature: if we want to ask for the password in the UI even though you're
+  already logged in, such as in a password change UI, we need to be able to
+  check credentials without actually logging in. There is now an `Auth::verify`
+  to do that.
+
 ## 0.2.0 (2026-10-28)
 
 We want to support applications creating an `Auth` per request for scenarios

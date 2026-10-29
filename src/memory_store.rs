@@ -76,6 +76,13 @@ pub struct MemorySessionStore {
     session_infos: Mutex<HashMap<TokenHash, SessionInfo<MemoryUserId>>>,
 }
 
+impl MemorySessionStore {
+    /// Whether there are no sessions.
+    pub fn is_empty(&self) -> bool {
+        lock(&self.session_infos).is_empty()
+    }
+}
+
 impl SessionStore for MemorySessionStore {
     type UserId = MemoryUserId;
 

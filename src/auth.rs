@@ -105,14 +105,13 @@ where
         Ok(())
     }
 
-    /// A new session for the user with the credentials, or `None` if
-    /// there's none. Verifying is slow on purpose, and there is
-    /// a semaphore in place to avoid verifying too many simultaneously.
-    pub async fn log_in(
+    /// The user id of the user with the credentials, or `None` if there's
+    /// none. Verifying is slow on purpose, and there is a semaphore in place
+    /// to avoid verifying too many simultaneously.
+    pub async fn verify(
         &self,
         credentials: &Credentials,
-        now: Timestamp,
-    ) -> Result<Option<Session>, AuthError<V::Error>> {
+    ) -> Result<Option<P::UserId>, AuthError<V::Error>> {
         let Some(password_auth_info) = self.password_store.get_user(&credentials.username).await?
         else {
             // even if we can't find the user we verify a dummy password so
@@ -129,6 +128,19 @@ where
         {
             return Ok(None);
         }
+        Ok(Some(password_auth_info.user_id))
+    }
+
+    /// A new session for the user with the credentials, or `None` if
+    /// there's none. Verifies the credentials like `verify`.
+    pub async fn log_in(
+        &self,
+        credentials: &Credentials,
+        now: Timestamp,
+    ) -> Result<Option<Session>, AuthError<V::Error>> {
+        let Some(user_id) = self.verify(credentials).await? else {
+            return Ok(None);
+        };
         // clean up any expired sessions
         self.session_store.remove_expired_sessions(now).await?;
         let session_token = SessionToken::generate()?;
@@ -137,7 +149,7 @@ where
             .set_session(
                 &session_token.token_hash(),
                 SessionInfo {
-                    user_id: password_auth_info.user_id,
+                    user_id,
                     expires_at,
                 },
             )
@@ -344,6 +356,45 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(verify_password(PASSWORD, &password_auth_info.password_hash).is_ok());
+    }
+
+    #[tokio::test]
+    async fn verifies_credentials() {
+        let auth = auth();
+        let memory_user_id = create_user(&auth, &credentials(PASSWORD)).await;
+
+        let user_id = auth.verify(&credentials(PASSWORD)).await.unwrap();
+
+        assert_eq!(user_id, Some(memory_user_id));
+    }
+
+    #[tokio::test]
+    async fn verifies_no_user_with_wrong_password() {
+        let auth = auth();
+        create_user(&auth, &credentials(PASSWORD)).await;
+
+        let user_id = auth.verify(&credentials("wrong horse")).await.unwrap();
+
+        assert_eq!(user_id, None);
+    }
+
+    #[tokio::test]
+    async fn verifies_no_user_with_unknown_username() {
+        let auth = auth();
+
+        let user_id = auth.verify(&credentials(PASSWORD)).await.unwrap();
+
+        assert_eq!(user_id, None);
+    }
+
+    #[tokio::test]
+    async fn verifying_starts_no_session() {
+        let auth = auth();
+        create_user(&auth, &credentials(PASSWORD)).await;
+
+        auth.verify(&credentials(PASSWORD)).await.unwrap();
+
+        assert!(auth.session_store.is_empty());
     }
 
     #[tokio::test]
